@@ -1,5 +1,5 @@
 # Caching Case Studies — Class Notes
-**Source:** Scaler Academy | High Level Design
+
 
 ---
 
