@@ -61,13 +61,64 @@ The faculty emphasized this as a **mandatory ordering**:
 
 ---
 
-## 4. NewsFeed — The Fan-Out Problem
+## 4. NewsFeed 
 
-- To build a user's newsfeed: need posts from all ~1000 friends.
-- Friends are sharded across (potentially) all DB shards.
-- Building one newsfeed → **fan-out request** to all DB servers.
-- 2 billion DAU × this fan-out → unsustainable load.
-- **Therefore: we need some solution. (Not necessarily a cache — could be a different architecture.)**
+### Problem
+To build a user’s newsfeed, the system needs posts from all of their friends/followings.
+
+Current System:
+- An average user have 1000 firends approximately (assumption).
+- These users are distributed across many database shards (it was discussed in lecture 4).
+
+
+
+---
+
+### Trivial Approach
+For every user:
+1. Query each friend individually.
+2. Fetch recent posts of the friends (for example, last 30 days).
+3. Merge and sort all posts.
+4. Return the final feed.
+
+High-level complexity:
+- `2 billion users × 1000 friend fetches` 
+- enormous number of read operations and network calls.
+
+---
+
+### Limitations of the Trivial Approach
+
+#### 1. Duplicate Computation
+Popular creators/celebrities create massive repeated work.
+
+Example:
+- A post from Virat Kohli may need to appear in millions of feeds.
+- The naive system may fetch/process the same post separately for every fan.
+
+This creates huge unnecessary computation.
+
+#### 2. High Server Load
+- Massive fan-out requests increase pressure on DB servers.
+- More computation and queries increase chances of overload/crashes.
+- Person A and Person B may have 60% same feed but still fetching them separately, imagine this happening for thousands of users. Too much repeated calls. 
+
+#### 3. High Latency
+- Friends are spread across different shards.
+- Feed generation requires many cross-network calls. Also DB query takes the time. 
+- More network hops → slower feed generation.
+
+---
+
+### Conclusion
+The trivial approach has high chances of server crash and high latency which degrades user experience and reduces durability of the system. 
+
+Therefore, we need a more scalable feed architecture:
+- possibly caching,
+- precomputed feeds,
+- fan-out-on-write,
+- hybrid architectures,
+- or other optimizations.
 
 ---
 
@@ -82,16 +133,12 @@ Total cache size     = 3B × 500 × 500 bytes
                      = 750 TB
 ```
 
-### Why this is wrong (multiple reasons)
+### Why this is wrong 
 
-1. **750 TB > 400 TB of original data** — duplicating posts per friend (1 post replicated into 1000 friends' newsfeeds).
-2. **No server has that much RAM.**
-3. **Invalidation nightmare:**
+- **Invalidation Problem:**
    - When user A posts → must invalidate newsfeeds of all 1000 friends.
    - When Facebook's ranking algorithm changes (4–5 changes/day) → invalidates virtually ALL newsfeeds.
-4. **A/B testing** on ranking algorithms becomes impossible if old newsfeeds are cached.
 
-> **Highlight:** Storage isn't the only problem — invalidation is. If new posts and algorithm changes constantly invalidate the cache, the cached newsfeed serves stale data more often than fresh data.
 
 ---
 
@@ -107,7 +154,7 @@ Total cache size     = 3B × 500 × 500 bytes
 ### Key Insight
 - You don't need a pre-built newsfeed — you only need the **raw posts** required to build it.
 - 500 posts can be reordered in the application server in microseconds.
-- Users don't care about posts older than ~30 days.
+- Users don't care about posts older than ~30 days (assumption).
 
 ### Calculation
 ```
@@ -230,7 +277,7 @@ Total cache size     = 3B × 500 bytes = 1.5 TB
 ### The three properties
 - **C — Consistency:** All replicas show the same data at the same time.
 - **A — Availability:** Every request gets a (non-error) response.
-- **P — Partition Tolerance:** System continues operating during a partition.
+- **P — Partition Tolerance:** System continues operating during a partition. System does not completely crash globally
 
 ### The theorem
 - You cannot have all three simultaneously. **Pick 2.**
@@ -248,10 +295,12 @@ Total cache size     = 3B × 500 bytes = 1.5 TB
 - Brokers like Zerodha CAN go down independently — but the exchange itself cannot serve inconsistent prices.
 
 ### CP example (Consistency + Partition Tolerance)
-- Banking account balance: reads may be denied during a partition rather than show inconsistent values.
+- Banking account balance: reads may be denied during a partition rather than show inconsistent values. So if reads are denied: Availability is sacrificed. 
+- CP systems preserve correctness by sacrificing availability of some requests
 
 ### AP example (Availability + Partition Tolerance)
 - Social media feeds, e-commerce browsing, search results.
+- AP systems preserve availability by allowing temporary inconsistency
 
 > **Highlight (Interview):** CAP is one of the **most frequently asked HLD interview questions**. Be ready with concrete examples of CP, AP, and (rare) CA systems.
 
@@ -266,6 +315,7 @@ CAP only describes behavior during a **partition**. PACELC extends to the no-par
 ### Statement
 - **If (P)artition** → choose **A**vailability or **C**onsistency
 - **Else (E)** → choose **L**atency or **C**onsistency
+- Above Latency actually means low latency and if there will consistency then there will be more latency. 
 
 ### Why even without partition?
 - Maintaining strict consistency across replicas without a partition still requires **2-Phase Commit** → high latency, slow writes.
@@ -285,33 +335,38 @@ CAP only describes behavior during a **partition**. PACELC extends to the no-par
 
 ## 14. Final Architecture
 
-```
-        Client
-          │
-          ▼
-   [App Load Balancer]   round-robin
-          │
-          ▼
-   [Stateless App Servers]
-          │
-   ┌──────┴──────────────────────────┐
-   │                                 │
-   ▼                                 ▼
-[Main DB LB]                  [NewsFeed Cache LB]
-   │ consistent-hash(user_id)        │
-   ▼                                 ▼
-[Sharded Main DB]            [NewsFeed Cache Servers]
- ┌────┬────┬────┐             (each with replicas)
- │ S1 │ S2 │... │             ┌────┬────┐
- └────┴────┴────┘             │ R1 │ R2 │  ... = 1.5 TB
-   ▲                          └────┴────┘
-   │ writes from app server         ▲
-   │                                │
-   │   (writes go to app server)    │
-   │            │                   │
-   │            ▼                   │
-   │      [Message Queue] ──────────┘ async consumer
-   │       (Kafka-like)
+```mermaid
+flowchart TD
+    Client([Client])
+    ALB["[App Load Balancer]
+    round-robin"]
+    AppServers["[Stateless App Servers]"]
+    MainDBLB["[Main DB LB]
+    consistent-hash(user_id)"]
+    NFCacheLB["[NewsFeed Cache LB]"]
+    MQ["[Message Queue]
+    (Kafka-like)"]
+    MainDB["[Sharded Main DB]
+    ┌────┬────┬────┐
+    │ S1 │ S2 │... │
+    └────┴────┴────┘"]
+    NFCache["[NewsFeed Cache Servers]
+    (each with replicas)
+    ┌────┬────┐
+    │ R1 │ R2 │ ... = 1.5 TB
+    └────┴────┘"]
+    MQConsumer["[MQ Consumer]"]
+
+    Client --> ALB
+    ALB --> AppServers
+    AppServers --> MainDBLB
+    MainDBLB --> MainDB
+    AppServers --> MQ
+    MQ --> MQConsumer
+    MQConsumer --> NFCacheLB
+    NFCacheLB --> NFCache
+
+    
 ```
 
 - **App servers:** stateless, round-robin.
