@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Byte vs Block Addressable Memory &amp; B-Trees</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    color: #e4e4e4;
+    min-height: 100vh;
+    padding: 24px;
+    line-height: 1.6;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  header {
+    text-align: center;
+    padding: 32px 16px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 16px;
+    margin-bottom: 28px;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  header h1 {
+    font-size: 2.2rem;
+    background: linear-gradient(90deg, #00d4ff, #ff6ec4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  header p { color: #b9b9c9; font-size: 1rem; }
+
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 24px;
+    justify-content: center;
+  }
+  .tab-btn {
+    background: rgba(255,255,255,0.06);
+    color: #ddd;
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 10px 18px;
+    border-radius: 24px;
+    cursor: pointer;
+    font-size: 0.92rem;
+    transition: all 0.25s;
+  }
+  .tab-btn:hover { background: rgba(255,255,255,0.12); }
+  .tab-btn.active {
+    background: linear-gradient(90deg, #00d4ff, #ff6ec4);
+    color: #0f0c29;
+    font-weight: 600;
+    border-color: transparent;
+  }
+
+  .section {
+    display: none;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 24px;
+    animation: fadeIn 0.4s ease;
+  }
+  .section.active { display: block; }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  h2 {
+    color: #00d4ff;
+    margin-bottom: 14px;
+    border-bottom: 2px solid rgba(0,212,255,0.3);
+    padding-bottom: 6px;
+  }
+  h3 { color: #ff6ec4; margin: 18px 0 10px; }
+  p { margin-bottom: 12px; }
+  .highlight {
+    background: rgba(255,110,196,0.15);
+    color: #ffb3da;
+    padding: 1px 7px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .note {
+    background: rgba(0,212,255,0.08);
+    border-left: 3px solid #00d4ff;
+    padding: 12px 16px;
+    margin: 14px 0;
+    border-radius: 4px;
+  }
+  .warn {
+    background: rgba(255,170,0,0.08);
+    border-left: 3px solid #ffaa00;
+    padding: 12px 16px;
+    margin: 14px 0;
+    border-radius: 4px;
+  }
+
+  /* Demo containers */
+  .demo {
+    background: rgba(0,0,0,0.3);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 18px 0;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .demo-title {
+    font-size: 1rem;
+    color: #ffd86b;
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  .controls {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .controls input[type=number] {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff;
+    padding: 7px 10px;
+    border-radius: 6px;
+    width: 80px;
+  }
+  .btn {
+    background: linear-gradient(90deg, #00d4ff, #5b8def);
+    border: none;
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: transform 0.15s;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn.pink { background: linear-gradient(90deg, #ff6ec4, #ff8a5b); }
+  .btn.gray { background: rgba(255,255,255,0.12); }
+
+  /* RAM cells */
+  .ram-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 10px;
+  }
+  .cell {
+    width: 46px;
+    height: 46px;
+    background: rgba(0,212,255,0.12);
+    border: 1px solid rgba(0,212,255,0.4);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    transition: all 0.4s;
+  }
+  .cell .idx { font-size: 0.62rem; color: #8fdbff; }
+  .cell.active {
+    background: #ff6ec4;
+    transform: scale(1.15);
+    box-shadow: 0 0 18px #ff6ec4;
+  }
+
+  /* Disk blocks */
+  .disk-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 10px;
+  }
+  .block {
+    border: 2px solid rgba(255,170,0,0.5);
+    background: rgba(255,170,0,0.08);
+    border-radius: 8px;
+    padding: 8px;
+    min-width: 200px;
+    transition: all 0.4s;
+  }
+  .block.active {
+    background: rgba(255,110,196,0.25);
+    border-color: #ff6ec4;
+    box-shadow: 0 0 22px rgba(255,110,196,0.5);
+  }
+  .block-label {
+    font-size: 0.72rem;
+    color: #ffd86b;
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .block-cells {
+    display: flex;
+    gap: 3px;
+    flex-wrap: wrap;
+  }
+  .block .cell {
+    width: 34px;
+    height: 34px;
+    font-size: 0.68rem;
+    background: rgba(255,170,0,0.15);
+    border-color: rgba(255,170,0,0.4);
+  }
+  .block .cell.target {
+    background: #ff6ec4 !important;
+    box-shadow: 0 0 14px #ff6ec4;
+  }
+
+  /* B-Tree */
+  .btree-wrap {
+    overflow-x: auto;
+    padding: 10px 0;
+  }
+  svg.btree { display: block; margin: 0 auto; }
+  .node-rect { fill: rgba(0,212,255,0.15); stroke: #00d4ff; stroke-width: 2; transition: all 0.4s; }
+  .node-rect.active { fill: #ff6ec4; stroke: #fff; }
+  .node-rect.visited { fill: rgba(255,110,196,0.3); stroke: #ff6ec4; }
+  .key-rect { fill: rgba(0,0,0,0.3); stroke: #00d4ff; stroke-width: 1; }
+  .key-rect.match { fill: #ffd86b; stroke: #fff; }
+  text.key-text { fill: #fff; font-size: 13px; font-family: monospace; pointer-events: none; }
+  text.match { fill: #0f0c29; font-weight: bold; }
+  line.edge { stroke: rgba(255,255,255,0.4); stroke-width: 1.5; }
+
+  .stats {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .stat {
+    background: rgba(255,255,255,0.06);
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.1);
+    min-width: 140px;
+  }
+  .stat .lbl { font-size: 0.72rem; color: #b9b9c9; text-transform: uppercase; }
+  .stat .val { font-size: 1.4rem; color: #00d4ff; font-weight: bold; }
+
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 18px 0;
+  }
+  @media (max-width: 720px) { .compare { grid-template-columns: 1fr; } }
+  .card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .card h4 {
+    color: #ffd86b;
+    margin-bottom: 8px;
+    font-size: 1.05rem;
+  }
+  .card ul { padding-left: 18px; }
+  .card li { margin-bottom: 4px; font-size: 0.95rem; }
+
+  code {
+    background: rgba(0,0,0,0.4);
+    color: #ffd86b;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.92rem;
+  }
+  pre {
+    background: rgba(0,0,0,0.4);
+    padding: 12px 14px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 10px 0;
+    border-left: 3px solid #00d4ff;
+  }
+  pre code { background: none; padding: 0; color: #c5e1ff; }
+
+  .log {
+    background: #000;
+    color: #00ff88;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-family: monospace;
+    font-size: 0.85rem;
+    height: 130px;
+    overflow-y: auto;
+    margin-top: 10px;
+    border: 1px solid #00ff88;
+  }
+  .log div { margin-bottom: 2px; }
+  .log .info { color: #00d4ff; }
+  .log .hit { color: #ffd86b; }
+  .log .err { color: #ff6ec4; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>Byte vs Block Addressable Memory &amp; B-Trees</h1>
+    <p>An interactive guide to how RAM, Disk, and Databases work together</p>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="intro">1. The Big Picture</button>
+    <button class="tab-btn" data-tab="byte">2. Byte Addressable (RAM)</button>
+    <button class="tab-btn" data-tab="block">3. Block Addressable (Disk)</button>
+    <button class="tab-btn" data-tab="problem">4. The DBMS Problem</button>
+    <button class="tab-btn" data-tab="btree">5. B-Tree Explained</button>
+    <button class="tab-btn" data-tab="optimize">6. Why B-Trees Win</button>
+    <button class="tab-btn" data-tab="architecture">7. DBMS Architecture</button>
+  </div>
+
+  <!-- ============ INTRO ============ -->
+  <section class="section active" id="intro">
+    <h2>The Big Picture</h2>
+    <p>When your faculty said <span class="highlight">"RAM is byte addressable and Disk is block addressable"</span>, they were pointing at a very deep idea that shapes how databases are designed.</p>
+
+    <div class="compare">
+      <div class="card">
+        <h4>RAM (Memory)</h4>
+        <ul>
+          <li>Lives on a stick attached to the CPU</li>
+          <li>Access time: ~<b>100 nanoseconds</b></li>
+          <li>Can fetch <b>any single byte</b> directly</li>
+          <li>Volatile - loses data on power off</li>
+          <li>Expensive per GB</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Disk (HDD / SSD)</h4>
+        <ul>
+          <li>Persistent storage</li>
+          <li>Access time: ~<b>10 milliseconds</b> (HDD), ~100&micro;s (SSD)</li>
+          <li>Cannot fetch one byte - reads entire <b>blocks/pages</b> (usually 4 KB or 8 KB)</li>
+          <li>Survives power off</li>
+          <li>Cheap per GB</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>Speed gap intuition:</b> If a RAM read takes 1 second, a disk read takes about <b>1 day</b>. That's 100,000&times; slower. Every database optimization basically tries to <i>not touch the disk</i> when possible, and when it must, to grab as much useful data as possible in one shot.
+    </div>
+
+    <h3>Why does this matter for arrays?</h3>
+    <p>You said: <code>arr[i]</code> is O(1). That's true <b>only when the array is in RAM</b>. The CPU computes <code>baseAddress + i * elementSize</code> and fetches that byte directly. Easy.</p>
+    <p>But if your "array" is a 1 TB table sitting on disk, you cannot just compute an address and fetch one byte. The disk physically refuses to give you less than a whole block. That single restriction is why databases use <span class="highlight">B-Trees</span> instead of arrays or hashmaps.</p>
+  </section>
+
+  <!-- ============ BYTE ============ -->
+  <section class="section" id="byte">
+    <h2>Byte Addressable Memory (RAM)</h2>
+    <p>Every byte in RAM has its own unique numeric address. The CPU can ask the memory controller "give me byte at address X" and get it back in roughly 100 nanoseconds.</p>
+
+    <h3>How <code>arr[i]</code> works in O(1)</h3>
+    <pre><code>// Suppose arr starts at address 1000, each int = 4 bytes
+arr[0] -> address 1000
+arr[1] -> address 1004
+arr[2] -> address 1008
+arr[i] -> address 1000 + i * 4   <-- just arithmetic, one fetch</code></pre>
+
+    <div class="demo">
+      <div class="demo-title">Try it: Click any cell to fetch that byte from RAM</div>
+      <div class="controls">
+        <label>Index (i): <input type="number" id="ramIndex" value="5" min="0" max="15" /></label>
+        <button class="btn" onclick="ramFetch()">Fetch arr[i]</button>
+        <button class="btn gray" onclick="ramReset()">Reset</button>
+      </div>
+      <div class="ram-row" id="ramRow"></div>
+      <div class="stats">
+        <div class="stat"><div class="lbl">Address Computed</div><div class="val" id="ramAddr">-</div></div>
+        <div class="stat"><div class="lbl">Time Taken</div><div class="val" id="ramTime">-</div></div>
+        <div class="stat"><div class="lbl">Bytes Read</div><div class="val" id="ramBytes">-</div></div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>Key takeaway:</b> RAM gives you <b>random access</b> at the byte level. No matter which byte you want - byte #0 or byte #999,999,999 - the cost is the same. This is what makes <code>arr[i]</code> truly O(1).
+    </div>
+  </section>
+
+  <!-- ============ BLOCK ============ -->
+  <section class="section" id="block">
+    <h2>Block Addressable Memory (Disk)</h2>
+    <p>Disks were designed for bulk storage, not random access. Physical reasons (spinning platters on HDDs, flash page sizes on SSDs) force the disk to operate in <b>chunks called blocks</b> (also called <i>pages</i> in DB literature).</p>
+    <p>A typical block is <b>4 KB</b> or <b>8 KB</b>. Even if you only want 1 byte, the disk reads the whole 4096 bytes containing it.</p>
+
+    <h3>The painful reality</h3>
+    <pre><code>// You want byte at offset 5000 on disk
+// Disk: "I can only give you blocks. Byte 5000 lives in block 1 (bytes 4096..8191)"
+// You get back 4096 bytes. The other 4095 are 'wasted' work for this query.
+// AND the whole operation took ~10ms (100,000x slower than RAM)</code></pre>
+
+    <div class="demo">
+      <div class="demo-title">Try it: Read a specific byte offset from disk</div>
+      <div class="controls">
+        <label>Byte offset: <input type="number" id="diskOffset" value="9" min="0" max="31" /></label>
+        <button class="btn pink" onclick="diskFetch()">Read from Disk</button>
+        <button class="btn gray" onclick="diskReset()">Reset</button>
+      </div>
+      <div class="disk-container" id="diskContainer"></div>
+      <div class="stats">
+        <div class="stat"><div class="lbl">Block Loaded</div><div class="val" id="diskBlock">-</div></div>
+        <div class="stat"><div class="lbl">Bytes Transferred</div><div class="val" id="diskBytes">-</div></div>
+        <div class="stat"><div class="lbl">Bytes You Wanted</div><div class="val" id="diskWanted">-</div></div>
+        <div class="stat"><div class="lbl">Time</div><div class="val" id="diskTime">-</div></div>
+      </div>
+    </div>
+
+    <div class="warn">
+      <b>Insight:</b> Reading 1 byte costs the same as reading 4096 bytes. So smart software <b>packs related data into the same block</b> - that way, when the disk inevitably pulls the whole block, you actually use the rest of it.
+    </div>
+  </section>
+
+  <!-- ============ PROBLEM ============ -->
+  <section class="section" id="problem">
+    <h2>The DBMS Problem</h2>
+    <p>Imagine a <code>users</code> table with <b>1 billion rows</b>. Total size: 200 GB. RAM size: 16 GB. You cannot fit it all in memory. The table must live on disk.</p>
+
+    <p>Query: <code>SELECT * FROM users WHERE id = 7382910;</code></p>
+
+    <h3>Naive approach #1: Linear scan</h3>
+    <p>Read every block, check every row. With 50 million blocks &times; 10ms = <b>~6 days</b> per query. Unacceptable.</p>
+
+    <h3>Naive approach #2: Sorted array on disk + binary search</h3>
+    <p>Better - O(log n) reads, ~30 disk hits = ~300 ms. <span data-cf-change="ch-disk-fragmentation">But each hit potentially jumps to a different block.</span> And inserts are painful (shifting billions of rows).</p>
+
+    <span data-cf-change="ch-disk-fragmentation">
+    <div class="note" style="border-left-color:#ffaa00; background:rgba(255,170,0,0.06);">
+      <b>&#128161; Wait - why do blocks "jump around"? Aren't they stored continuously on disk?</b>
+      <p style="margin-top:8px;">Great question. The short answer: <b>data on disk is almost never stored in one continuous stretch</b>. Let's build the intuition step by step.</p>
+    </div>
+
+    <h3 style="color:#ffd86b;">&#128218; The library analogy (the easiest way to get this)</h3>
+    <p>Imagine a giant library with thousands of shelves. Each shelf holds exactly 10 books. The shelves are your <b>disk blocks</b>. The books are your <b>rows</b>.</p>
+    <p>On <b>Day 1</b>, the library is empty. You receive 30 books for "Topic A" and place them neatly on shelves #1, #2, #3. Continuous. Perfect.</p>
+    <p>On <b>Day 2</b>, you get 20 books for "Topic B" and put them on shelves #4, #5.</p>
+    <p>On <b>Day 3</b>, your boss gives you <b>15 more books for Topic A</b>. Shelves #1, #2, #3 are full. Shelf #4 belongs to Topic B. Where do you put the new Topic A books?</p>
+    <p style="margin-left:18px;">&rarr; You put them on shelf #6 and shelf #7. Now Topic A's books live on shelves <b>1, 2, 3, 6, 7</b> - <span class="highlight">no longer continuous</span>.</p>
+    <p>On <b>Day 4</b>, someone removes 5 books from shelf #2. Now shelf #2 has gaps. Later you get new books for Topic C - they fill those gaps on shelf #2. So shelf #2 is now <i>mixed</i>.</p>
+    <p>This is exactly what a hard disk looks like after a few months of real use - a patchwork of blocks belonging to many different files, scattered everywhere.</p>
+
+    <h3 style="color:#ffd86b;">&#128202; Visual: logical order vs physical layout</h3>
+    <div class="demo">
+      <div class="demo-title">A sorted "users" array (logical view) - IDs in order 1-32</div>
+      <div style="display:flex; flex-wrap:wrap; gap:3px; margin-bottom:14px;">
+        <!-- Logical layout - perfectly sorted -->
+        <div style="background:rgba(0,212,255,0.12); border:1px solid rgba(0,212,255,0.4); padding:6px 10px; border-radius:6px; font-size:0.78rem;">IDs 1-8</div>
+        <div style="background:rgba(0,212,255,0.12); border:1px solid rgba(0,212,255,0.4); padding:6px 10px; border-radius:6px; font-size:0.78rem;">IDs 9-16</div>
+        <div style="background:rgba(0,212,255,0.12); border:1px solid rgba(0,212,255,0.4); padding:6px 10px; border-radius:6px; font-size:0.78rem;">IDs 17-24</div>
+        <div style="background:rgba(0,212,255,0.12); border:1px solid rgba(0,212,255,0.4); padding:6px 10px; border-radius:6px; font-size:0.78rem;">IDs 25-32</div>
+      </div>
+      <div class="demo-title">The actual disk (physical view) - same 4 blocks, scattered among other files</div>
+      <div style="display:grid; grid-template-columns:repeat(10, 1fr); gap:4px;">
+        <div style="background:#333; padding:8px 4px; border-radius:4px; text-align:center; font-size:0.7rem; color:#888;">log.txt</div>
+        <div style="background:rgba(0,212,255,0.3); border:2px solid #00d4ff; padding:8px 4px; border-radius:4px; text-align:center; font-size:0.7rem;">IDs 1-8</div>
+        <div style="background:#333; padding:8px 4px; border-radius:4px; text-align:center; font-size:0.7rem; color:#888;">img.jpg</div>
+        <div style="background:#333; padding:8px 4px; border-radius:4px; text-align:center; font-size:0.7rem; color:#888;">img.jpg</div>
+        <div style="background:rgba(0,212,255,0.3); border:2px solid #00d4ff; padding:8px 4px; border-radius:4px; text-align:center; font-size:0.7rem;">IDs 25-32</div>
+        <div style="background:#333; padding:8px 4px; border-radius:4px; text-align:center; font-size:0.7rem; color:#888;">free</div>
+        <div style="background:rgba(0,212,255,0.3); border:2px solid #00d4ff; padding:8px 4px; border-radius:4px; text-align:center; font-size:0.7rem;">IDs 9-16</div>
+        <div style="background:#333; padding:8px 4px; border-radius:4px; text-align:center; font-size:0.7rem; color:#888;">cache</div>
+        <div style="background:#333; padding:8px 4px; border-radius:4px; text-align:center; font-size:0.7rem; color:#888;">cache</div>
+        <div style="background:rgba(0,212,255,0.3); border:2px solid #00d4ff; padding:8px 4px; border-radius:4px; text-align:center; font-size:0.7rem;">IDs 17-24</div>
+      </div>
+      <p style="margin-top:14px; font-size:0.92rem; color:#b9b9c9;">The blue blocks are <b>your sorted users table</b>. They look continuous when you read your SQL query, but the actual disk has them sitting at physical positions <b>2, 7, 10, 5</b> - mixed in with log files, images, OS caches, and free space.</p>
+    </div>
+
+    <h3 style="color:#ffd86b;">&#10067; But how does the database know "ID 9-16 is at physical block #7"?</h3>
+    <p>The <b>file system</b> keeps a translation table (on Linux, this is the <i>inode</i>; on Windows, the <i>MFT</i>). When the DB asks "give me byte 8000 of my data file", the OS looks up: "byte 8000 of users.dat lives at physical block #7 of the drive", and fetches that one block.</p>
+    <p>This is invisible to the DB - but the cost is very real.</p>
+
+    <h3 style="color:#ffd86b;">&#9201;&#65039; Why "jumping blocks" is so expensive (HDD specifically)</h3>
+    <p>On an HDD, the head physically moves to find the right track:</p>
+    <ul style="padding-left:20px;">
+      <li>If you read block #2, then block #3, then block #4 (continuous) - head barely moves. Each read ~0.1 ms after the first.</li>
+      <li>If you read block #2, then block #7, then block #10, then block #5 (scattered) - head must <b>seek</b> each time. Each seek ~5-10 ms.</li>
+    </ul>
+    <p>So binary search on a sorted "array" stored on disk doesn't get you the speed of an in-RAM binary search. Each comparison forces a jump to a random block - <b>every comparison is a 10 ms seek</b>.</p>
+
+    <span data-cf-change="ch-hdd-mechanics">
+    <div class="note" style="border-left-color:#ffaa00; background:rgba(255,170,0,0.06); margin-top:18px;">
+      <b>&#129300; Hold on - what exactly is "the head"? If the system already knows the address, why does location matter?</b>
+      <p style="margin-top:8px;">This is the single most important physical fact to internalize. Your mental model is right for RAM but wrong for HDDs. Let's fix it.</p>
+    </div>
+
+    <h3 style="color:#ffd86b;">&#128247; What a hard disk actually looks like inside</h3>
+    <p>Pop open an HDD and you'd see something that looks like a tiny record player:</p>
+    <div class="demo">
+      <div class="demo-title">HDD anatomy (animated)</div>
+      <div style="display:flex; gap:24px; align-items:center; justify-content:center; flex-wrap:wrap;">
+        <svg width="280" height="280" viewBox="0 0 280 280">
+          <!-- Platter -->
+          <circle cx="140" cy="140" r="120" fill="#1a1a2e" stroke="#888" stroke-width="2"/>
+          <circle cx="140" cy="140" r="120" fill="url(#platterGrad)" opacity="0.6"/>
+          <defs>
+            <radialGradient id="platterGrad">
+              <stop offset="0%" stop-color="#444"/>
+              <stop offset="100%" stop-color="#222"/>
+            </radialGradient>
+          </defs>
+          <!-- Tracks (concentric circles) -->
+          <circle cx="140" cy="140" r="100" fill="none" stroke="rgba(0,212,255,0.4)" stroke-width="1"/>
+          <circle cx="140" cy="140" r="80" fill="none" stroke="rgba(0,212,255,0.4)" stroke-width="1"/>
+          <circle cx="140" cy="140" r="60" fill="none" stroke="rgba(0,212,255,0.4)" stroke-width="1"/>
+          <circle cx="140" cy="140" r="40" fill="none" stroke="rgba(0,212,255,0.4)" stroke-width="1"/>
+          <!-- Spindle -->
+          <circle cx="140" cy="140" r="18" fill="#555" stroke="#999" stroke-width="1"/>
+          <!-- Rotating sector indicator -->
+          <g style="transform-origin: 140px 140px; animation: spin 2s linear infinite;">
+            <path d="M 140 140 L 140 20 A 120 120 0 0 1 200 36 Z" fill="rgba(255,110,196,0.25)"/>
+          </g>
+          <!-- Actuator arm -->
+          <g style="transform-origin: 250px 30px; animation: armSwing 4s ease-in-out infinite;">
+            <line x1="250" y1="30" x2="120" y2="100" stroke="#ddd" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="250" cy="30" r="10" fill="#888" stroke="#fff" stroke-width="2"/>
+            <!-- Read/write head tip -->
+            <rect x="112" y="92" width="16" height="16" fill="#ff6ec4" stroke="#fff" stroke-width="1.5" rx="2"/>
+          </g>
+          <!-- Labels -->
+          <text x="140" y="275" text-anchor="middle" fill="#b9b9c9" font-size="11">Platter (spins at 7200 RPM)</text>
+        </svg>
+        <div style="max-width:340px;">
+          <p style="margin-bottom:8px;"><b style="color:#ff6ec4;">The pink square</b> is the <b>read/write head</b> - a microscopic sensor at the end of the arm that detects/changes the magnetic polarity of tiny spots on the platter.</p>
+          <p style="margin-bottom:8px;"><b style="color:#00d4ff;">The blue circles</b> are <b>tracks</b> - concentric rings where data lives.</p>
+          <p style="margin-bottom:8px;"><b>The platter</b> is a metal disk coated with magnetic film. It spins constantly at 5400-7200 RPM (90-120 spins per second).</p>
+          <p>The head <b>floats nanometers above</b> the surface but never touches it (a head crash destroys the drive).</p>
+        </div>
+      </div>
+      <style>
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes armSwing { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-25deg); } }
+      </style>
+    </div>
+
+    <h3 style="color:#ffd86b;">&#9881;&#65039; The two physical delays you cannot escape</h3>
+    <p>To read block X, the controller knows exactly which <b>track</b> (which ring) and which <b>sector</b> (which spot on that ring) holds X. But "knowing" is not "having". Two mechanical things must happen:</p>
+    <div class="compare">
+      <div class="card">
+        <h4>1. Seek time</h4>
+        <p>The arm must <b>physically swing</b> from its current track to the target track. The arm has mass; it cannot teleport.</p>
+        <p style="margin-top:6px;"><b>Typical: 4-10 ms</b> for a random seek.</p>
+        <p style="margin-top:6px; color:#b9b9c9; font-size:0.88rem;">Already on the right track? Seek = 0.</p>
+      </div>
+      <div class="card">
+        <h4>2. Rotational latency</h4>
+        <p>Once on the right track, you must wait for the right sector to <b>rotate under the head</b>. The platter spins at a fixed speed - you can't speed it up.</p>
+        <p style="margin-top:6px;"><b>Average: 4 ms</b> at 7200 RPM (half a rotation).</p>
+        <p style="margin-top:6px; color:#b9b9c9; font-size:0.88rem;">If the sector just passed by, you wait one full rotation (~8 ms).</p>
+      </div>
+    </div>
+
+    <h3 style="color:#ffd86b;">&#127939; Why continuous beats scattered (the lightbulb moment)</h3>
+    <div class="compare">
+      <div class="card" style="border:1px solid rgba(0,255,136,0.3);">
+        <h4 style="color:#00ff88;">&#9989; Continuous: blocks 2, 3, 4</h4>
+        <ol style="padding-left:18px;">
+          <li>Seek to track holding block #2: ~5 ms</li>
+          <li>Wait for block #2 to rotate under head: ~4 ms</li>
+          <li>Read block #2 (~0.1 ms)</li>
+          <li>Block #3 is the very next sector on the same track. The platter is already spinning; #3 arrives under the head in ~0.05 ms. <b>No new seek, no new rotation wait.</b></li>
+          <li>Same for block #4.</li>
+        </ol>
+        <p><b>Total: ~9 ms for the first, then ~0.1 ms each. ~9.2 ms total.</b></p>
+      </div>
+      <div class="card" style="border:1px solid rgba(255,110,196,0.3);">
+        <h4 style="color:#ff6ec4;">&#10060; Scattered: blocks 2, 7, 10, 5</h4>
+        <ol style="padding-left:18px;">
+          <li>Seek + rotate + read block #2: ~9 ms</li>
+          <li>Block #7 is on a different track. <b>New seek (~5 ms) + new rotation wait (~4 ms)</b> + read = ~9 ms</li>
+          <li>Block #10 on another track: ~9 ms</li>
+          <li>Block #5 on yet another track: ~9 ms</li>
+        </ol>
+        <p><b>Total: ~36 ms. Roughly 4&times; slower for the same 4 blocks.</b></p>
+      </div>
+    </div>
+    <p style="margin-top:10px;">So knowing the address is necessary but not sufficient. <b>Knowing where something is doesn't move the hardware faster.</b> The hardware has to physically traverse to it, and that traversal is what dominates the time.</p>
+
+    <div class="note" style="margin-top:14px;">
+      <b>RAM analogy to make this concrete:</b> RAM has no moving parts - electrical signals reach any cell in ~100 ns. It's like flicking a light switch. HDD is like a librarian on a unicycle riding around a circular library - even if she knows exactly which shelf to go to, she still has to <i>pedal there</i>.
+    </div>
+
+    <h3 style="color:#ffd86b;">&#128190; What about SSDs? (the modern reality)</h3>
+    <p>Almost all modern laptops and servers use SSDs (Solid State Drives). Good news: <b>SSDs have NO moving parts.</b> No spinning platter, no swinging arm, no head. Data lives in <b>NAND flash memory chips</b> - basically billions of tiny transistors that hold charge.</p>
+    <p>So does the seek/scatter problem disappear?</p>
+    <div class="compare">
+      <div class="card">
+        <h4>&#9989; What SSDs fix</h4>
+        <ul style="padding-left:18px;">
+          <li><b>Random access is fast</b> - ~50-150 microseconds (vs 5-10 ms on HDD). That's 50-200&times; faster.</li>
+          <li>No "seek time" - reaching any flash cell takes the same time as any other.</li>
+          <li>Scattered reads are <b>much</b> closer to sequential reads in performance.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>&#9888;&#65039; What SSDs do NOT fix</h4>
+        <ul style="padding-left:18px;">
+          <li><b>Still block/page based</b> - the smallest read is one "page" (typically 4 KB or 16 KB). Want 1 byte? You still get 4096.</li>
+          <li>Writes are even more painful - SSDs erase in big "erase blocks" (~256 KB) before they can rewrite, leading to <b>write amplification</b>.</li>
+          <li>Each cell wears out after ~1000-100,000 writes; the SSD's controller does <b>wear leveling</b> by scattering writes deliberately.</li>
+          <li>Total throughput per query is still limited by how many block reads you do.</li>
+        </ul>
+      </div>
+    </div>
+
+    <span data-cf-change="ch-write-amplification">
+    <h3 style="color:#ffd86b;">&#128190; What is "write amplification"? (the simple version)</h3>
+    <p><b>Short definition:</b> Write amplification means that when you ask an SSD to write a small amount of data, it ends up <b>physically writing much more</b> than that under the hood. The amount you wanted vs the amount actually written is the "amplification".</p>
+
+    <h4 style="color:#ff6ec4; margin-top:14px;">Why this happens (the 3 rules of NAND flash)</h4>
+    <p>SSDs play by three weird rules that come from the physics of NAND flash cells:</p>
+    <ol style="padding-left:24px;">
+      <li><b>Reads</b> happen at the <b>page</b> level (small - typically 4 KB or 16 KB).</li>
+      <li><b>Writes</b> also happen at the <b>page</b> level - <b>BUT only to a page that's been freshly erased</b>. You cannot overwrite a page that already has data.</li>
+      <li><b>Erases</b> happen at the <b>erase block</b> level, which contains <b>many pages bundled together</b> (typically 128-256 pages = 512 KB to 4 MB). The hardware physically cannot erase just one page.</li>
+    </ol>
+    <p>So the painful combination is: you can't reuse a page until it's erased, and erasing takes out a huge group of pages at once.</p>
+
+    <h4 style="color:#ff6ec4; margin-top:14px;">A concrete example - updating 100 bytes</h4>
+    <p>Say your SSD has 4 KB pages and erase blocks of 128 pages (= 512 KB). You want to update <b>100 bytes</b> in the middle of a file.</p>
+    <div class="demo">
+      <div class="demo-title">Step-by-step: what the SSD actually does</div>
+      <ol style="padding-left:24px;">
+        <li>The 100 bytes you want to change live inside <b>page #42</b>. That page is inside <b>erase block #3</b> (which has 127 other pages, all holding other data you don't want to touch).</li>
+        <li>The controller cannot just rewrite page #42 in place - rule #2 forbids it.</li>
+        <li>So the controller finds a <b>different erase block that's already empty</b>, say block #99.</li>
+        <li>It reads page #42 into a buffer, modifies the 100 bytes, and writes the <b>updated page</b> to a free page in block #99. (1 page = 4 KB written so far)</li>
+        <li>It updates an internal mapping table: "the logical page that used to live at block #3 / page #42 is now at block #99 / page #0".</li>
+        <li>The original page #42 in block #3 is now marked as <b>stale</b>.</li>
+        <li>Later, when block #3 has accumulated lots of stale pages, the <b>garbage collector</b> kicks in. It must reclaim block #3, but block #3 still has 127 valid pages mixed in with stale ones. So:
+          <ul style="padding-left:18px;">
+            <li>Copy all 127 valid pages to yet another free block (= 127 &times; 4 KB = <b>508 KB written</b>)</li>
+            <li>Erase the entire 512 KB block #3</li>
+          </ul>
+        </li>
+      </ol>
+    </div>
+    <p><b>The math:</b> you wrote 100 bytes from your program's perspective. The SSD physically wrote ~512 KB (1 page for the update + 508 KB during garbage collection). That's a write amplification factor of <b>~5000&times;</b> in the worst case.</p>
+    <p>Real-world SSDs are smarter (write buffering, log-structured writes, over-provisioning, etc.) so the typical amplification is more like <b>1.5&times; to 5&times;</b> - but it's never below 1, and on small-random-write workloads it gets ugly fast.</p>
+
+    <h4 style="color:#ff6ec4; margin-top:14px;">A simple analogy</h4>
+    <div class="note">
+      Imagine a notebook where the only way to erase is to <b>tear out an entire page</b> (even if you only want to fix one word). To "edit" a word, you must:
+      <ol style="padding-left:18px; margin-top:6px;">
+        <li>Copy every other sentence on that page to a fresh page</li>
+        <li>Add your corrected word</li>
+        <li>Tear out the old page</li>
+      </ol>
+      You changed 5 letters but rewrote a whole page. <b>That's write amplification</b> - your intended change is small, but the physical work the device must do is much bigger.
+    </div>
+
+    <h4 style="color:#ff6ec4; margin-top:14px;">Why you should care</h4>
+    <ul style="padding-left:20px;">
+      <li><b>Wear:</b> Every flash cell can only be erased ~1,000-100,000 times before it dies. A 5&times; amplification means your SSD wears out 5&times; faster than the raw byte count suggests.</li>
+      <li><b>Performance:</b> When garbage collection runs heavily (common after lots of small random writes), the SSD slows down dramatically - sometimes 10&times; slower than its advertised speed.</li>
+      <li><b>DB design:</b> This is why databases that <b>batch many small writes into one big sequential write</b> (LSM trees, write-ahead logs, etc.) perform much better on SSDs than databases that issue lots of tiny random updates.</li>
+    </ul>
+    </span>
+
+    <h3 style="color:#ffd86b;">&#128176; So does the DBMS choice change on SSD?</h3>
+    <p><b>No - B-Trees still win, for the same reason.</b> A B-Tree with fanout 500 needs only ~4 block reads for a billion-row table.</p>
+    <ul style="padding-left:20px;">
+      <li>HDD: 4 reads &times; 10 ms = <b>40 ms</b></li>
+      <li>SSD: 4 reads &times; 100 &micro;s = <b>0.4 ms</b></li>
+    </ul>
+    <p>Compare to a sorted array with binary search (~30 reads):</p>
+    <ul style="padding-left:20px;">
+      <li>HDD: 30 &times; 10 ms = <b>300 ms</b></li>
+      <li>SSD: 30 &times; 100 &micro;s = <b>3 ms</b></li>
+    </ul>
+    <p>Even on SSDs, B-Trees are <b>~7&times; faster</b> than binary search on a sorted array. The principle "minimize block reads, pack data densely" holds whether the underlying storage is mechanical or solid-state. SSDs just shift the absolute numbers down without changing the ranking.</p>
+
+    <div class="warn">
+      <b>One SSD-specific twist:</b> Some newer database engines (LSM trees in RocksDB, Cassandra, etc.) are designed specifically to favor sequential writes over random writes - precisely because of SSD write amplification. So "which structure is best" can depend on whether your workload is read-heavy (B-Tree wins) or write-heavy on SSD (LSM tree often wins).
+    </div>
+    </span>
+
+    <span data-cf-change="ch-ram-vs-disk-physics">
+    <div class="note" style="border-left-color:#ffaa00; background:rgba(255,170,0,0.06);">
+      <b>&#128294; Going deeper: why <i>physically</i> is RAM byte-addressable and disk isn't? And is scattered-page hopping really what causes the disk latency?</b>
+      <p style="margin-top:8px;">Yes, your intuition is exactly right. Let's nail it down with the underlying physics.</p>
+    </div>
+
+    <h3 style="color:#ffd86b;">&#129504; What makes RAM "byte addressable" - the physics</h3>
+    <p>RAM is built from billions of tiny <b>capacitors</b> (DRAM) or <b>flip-flops</b> (SRAM). Each storage cell holds 1 bit. 8 cells together = 1 byte. Every byte has its own unique numeric address.</p>
+
+    <div class="demo">
+      <div class="demo-title">RAM internal organization (simplified)</div>
+      <div style="display:flex; gap:24px; align-items:center; justify-content:center; flex-wrap:wrap;">
+        <svg width="320" height="260" viewBox="0 0 320 260">
+          <!-- Address input -->
+          <rect x="10" y="10" width="100" height="36" fill="rgba(0,212,255,0.2)" stroke="#00d4ff" stroke-width="2" rx="4"/>
+          <text x="60" y="33" text-anchor="middle" fill="#fff" font-size="12" font-family="monospace">Address: 0x05</text>
+          <!-- Row decoder -->
+          <rect x="10" y="70" width="60" height="160" fill="rgba(255,110,196,0.15)" stroke="#ff6ec4" stroke-width="1.5" rx="4"/>
+          <text x="40" y="155" text-anchor="middle" fill="#ff6ec4" font-size="10" transform="rotate(-90 40 155)">Row Decoder</text>
+          <!-- Column decoder -->
+          <rect x="90" y="70" width="220" height="24" fill="rgba(255,110,196,0.15)" stroke="#ff6ec4" stroke-width="1.5" rx="4"/>
+          <text x="200" y="86" text-anchor="middle" fill="#ff6ec4" font-size="10">Column Decoder</text>
+          <!-- Cell grid -->
+          <g>
+            <!-- 4x4 cells -->
+            <g>
+              <rect x="100" y="100" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+              <rect x="145" y="100" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+              <rect x="190" y="100" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+              <rect x="235" y="100" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+            </g>
+            <g>
+              <rect x="100" y="135" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+              <rect x="145" y="135" width="40" height="30" fill="#ffd86b" stroke="#fff" stroke-width="2"/>
+              <text x="165" y="155" text-anchor="middle" fill="#0f0c29" font-size="11" font-weight="bold">byte 5</text>
+              <rect x="190" y="135" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+              <rect x="235" y="135" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+            </g>
+            <g>
+              <rect x="100" y="170" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+              <rect x="145" y="170" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+              <rect x="190" y="170" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+              <rect x="235" y="170" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+            </g>
+            <g>
+              <rect x="100" y="205" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+              <rect x="145" y="205" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+              <rect x="190" y="205" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+              <rect x="235" y="205" width="40" height="30" fill="rgba(0,212,255,0.1)" stroke="#00d4ff"/>
+            </g>
+          </g>
+          <!-- Arrows -->
+          <line x1="60" y1="46" x2="60" y2="70" stroke="#00d4ff" stroke-width="2" marker-end="url(#arrow1)"/>
+          <line x1="110" y1="46" x2="200" y2="70" stroke="#00d4ff" stroke-width="2" marker-end="url(#arrow1)"/>
+          <defs>
+            <marker id="arrow1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 Z" fill="#00d4ff"/>
+            </marker>
+          </defs>
+        </svg>
+        <div style="max-width:340px;">
+          <p style="margin-bottom:8px;">When the CPU sends address <code>0x05</code> to RAM:</p>
+          <ol style="padding-left:18px;">
+            <li>The address is split into a <b>row number</b> and <b>column number</b>.</li>
+            <li>The row decoder activates one row's <i>word line</i>. All cells in that row are now "open".</li>
+            <li>The column decoder reads the bit from the right column's <i>bit line</i>.</li>
+            <li>Out comes the byte at address 5 (the yellow cell).</li>
+          </ol>
+          <p style="margin-top:8px;"><b>This is pure combinational logic - electrical signals flipping gates. No mechanical motion. The whole operation takes ~100 nanoseconds.</b></p>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="color:#ffd86b;">&#9889; Why every byte in RAM is equally fast</h3>
+    <ul style="padding-left:20px;">
+      <li><b>Electrical, not mechanical:</b> Reaching cell #5 and cell #5,000,000 are both done by flipping transistors. Electrons move at near light speed. No physical part has to relocate.</li>
+      <li><b>Hardware address decoder is parallel:</b> No matter what address you feed in, the decoder activates exactly one row and one column in the same number of gate delays. The decoder doesn't "look harder" for far-away addresses.</li>
+      <li><b>Wires are tiny:</b> The chip is millimeters across. Signal propagation is essentially instantaneous at this scale.</li>
+      <li><b>Designed for byte access from day one:</b> The smallest physically separable cell-group on a DRAM chip is one byte (8 bits sharing a column). The interface to the CPU exposes byte-level addresses directly.</li>
+    </ul>
+    <p>(There's a tiny exception: DRAM has a "row buffer" that caches the last accessed row. Reading two bytes from the <i>same</i> row is a few nanoseconds faster than from different rows. But this is a 10-20 ns difference, not orders of magnitude - so for practical purposes, "all bytes equally fast" is true.)</p>
+
+    <h3 style="color:#ffd86b;">&#128737;&#65039; Why disk physically <i>cannot</i> be byte-addressable</h3>
+    <p>Both HDDs and SSDs are forced into block-level granularity by their underlying physics:</p>
+
+    <div class="compare">
+      <div class="card">
+        <h4>HDD: spinning magnetic platters</h4>
+        <ul style="padding-left:18px;">
+          <li>Data is read by the head <b>as the platter spins past</b>. The head cannot "stop and look at one bit" - the platter never stops.</li>
+          <li>Each <b>sector</b> on the platter starts with a marker, contains the data, then ends with <b>error-correction codes</b> (ECC). The hardware needs the whole sector to verify integrity. Reading partial sectors makes no sense.</li>
+          <li>Sector size is baked into the firmware (typically 512 B or 4 KB).</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>SSD: NAND flash chips</h4>
+        <ul style="padding-left:18px;">
+          <li>NAND flash is physically organized into <b>pages</b> (4-16 KB). The smallest electrical read circuit operates on a whole page in parallel.</li>
+          <li>Like HDDs, ECC is computed per page. Reading less than a page gives unreliable bits.</li>
+          <li>The bus between SSD controller and flash chip is wide and designed to transfer a full page per cycle.</li>
+        </ul>
+      </div>
+    </div>
+    <p>So the constraint is <b>not laziness or convention</b> - it's the physical structure of the storage medium. Even if the CPU sent a "give me 1 byte" command, the underlying chip cannot fulfill it without reading the full block.</p>
+
+    <h3 style="color:#ffd86b;">&#9989; Your understanding confirmed: yes, scattered pages cause the latency</h3>
+    <p>You wrote: <i>"does latency in disk even if data is sorted comes because pages containing data of single table may not present in continuous memory blocks and hopping from one page to another is time taking operation when they are scattered over the memory"</i></p>
+    <p><b>That is exactly right.</b> Let's restate it precisely:</p>
+    <ol style="padding-left:24px;">
+      <li>"Sorted" only means <b>logical order</b> - the rows ARE in ascending key order if you walk them in file-offset order.</li>
+      <li>But the file's bytes are stored in disk pages, and those pages are <b>physically scattered</b> across the drive (because of file growth, deletes, the OS allocating wherever there's free space).</li>
+      <li>Each time binary search jumps to a different file offset, it lands in a different physical page.</li>
+      <li>Each new page = a new physical read operation:
+        <ul style="padding-left:18px;">
+          <li>HDD: seek (~5 ms) + rotational wait (~4 ms) + transfer = ~10 ms per hop</li>
+          <li>SSD: page read (~100 &micro;s) per hop - still not free, just much cheaper</li>
+        </ul>
+      </li>
+      <li>30 hops &times; 10 ms = 300 ms on HDD. That's the latency you're feeling.</li>
+    </ol>
+
+    <div class="note" style="margin-top:14px;">
+      <b>The cleanest way to remember it:</b>
+      <p style="margin-top:6px;"><b>RAM</b>: any byte costs the same, because access is purely electrical signal routing.</p>
+      <p><b>Disk</b>: the smallest unit you can read is one block (forced by physics), AND each block read costs a separate physical operation (seek+rotate on HDD, page read on SSD). So <i>fewer block reads = faster</i>, and that's why B-Trees - which let you find anything in 3-4 block reads - dominate disk-based storage.</p>
+    </div>
+    </span>
+
+    <h3 style="color:#ffd86b;">&#129504; Connecting the dots back to your faculty's point</h3>
+    <ol style="padding-left:24px;">
+      <li><b>Byte-addressable RAM</b>: any byte is equally fast. <code>arr[i]</code> doesn't care if memory is "scattered" because there is no seek cost.</li>
+      <li><b>Block-addressable disk</b>: must read whole blocks AND blocks can be physically anywhere AND seeking between them is slow.</li>
+      <li>Together this means: a "sorted array on disk" is a lie - it's logically sorted but physically scattered, and binary search becomes 30 expensive seeks.</li>
+      <li>So we need a structure where: (a) one read pulls a useful chunk, and (b) we make as few reads as possible. That's a B-Tree.</li>
+    </ol>
+
+    <div class="warn" style="margin-top:16px;">
+      <b>One more wrinkle:</b> Modern SSDs <i>don't</i> have a mechanical head, so the seek penalty is way smaller (~100 microseconds vs 10 ms). But blocks (called "pages" on SSDs, usually 4 KB) are still the minimum unit, so the "read 4096 bytes to get 1 byte" problem stays. B-Trees still win on SSDs because they minimize the total number of block reads.
+    </div>
+    </span>
+
+    <h3>Naive approach #3: Hash table on disk</h3>
+    <p>O(1) on average, but no range queries (<code>WHERE age BETWEEN 20 AND 30</code>), and hash collisions force chasing pointers across many blocks.</p>
+
+    <div class="note">
+      <b>What we need:</b>
+      <ul style="margin-top:6px; padding-left:20px;">
+        <li>Few disk reads (each read is expensive)</li>
+        <li>Each disk read should be <i>information-dense</i> - pack lots of useful data per block</li>
+        <li>Support range queries and ordering</li>
+        <li>Stay balanced under inserts and deletes</li>
+      </ul>
+    </div>
+
+    <p style="text-align:center; font-size:1.2rem; margin-top:18px;">
+      &darr;<br/>
+      <span class="highlight">This is exactly what a B-Tree is built for.</span>
+    </p>
+  </section>
+
+  <!-- ============ BTREE ============ -->
+  <section class="section" id="btree">
+    <h2>B-Tree (and B+ Tree) Explained</h2>
+    <p>A <b>B-Tree</b> is a self-balancing tree where each node can hold <b>many keys and many children</b> (not just 2 like a binary tree). The "B" was coined by its inventors (Bayer &amp; McCreight, 1972) and is often said to mean "balanced", "broad", or "Bayer".</p>
+
+    <h3>Is it used by relational DBMS?</h3>
+    <p><b>Yes - almost universally.</b> But technically, most relational databases use a variant called <span class="highlight">B+ Tree</span>:</p>
+    <ul style="padding-left:20px;">
+      <li><b>MySQL (InnoDB)</b> - B+ Tree for primary &amp; secondary indexes</li>
+      <li><b>PostgreSQL</b> - B+ Tree (default index type)</li>
+      <li><b>Oracle, SQL Server, SQLite</b> - all use B+ Trees</li>
+    </ul>
+
+    <h3>B-Tree vs B+ Tree (the small but crucial difference)</h3>
+    <div class="compare">
+      <div class="card">
+        <h4>B-Tree</h4>
+        <ul>
+          <li>Data stored in <b>all nodes</b> (internal + leaf)</li>
+          <li>Finding a key can stop early at an internal node</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>B+ Tree (used by DBMS)</h4>
+        <ul>
+          <li>Actual row data only in <b>leaf nodes</b></li>
+          <li>Internal nodes hold only keys &amp; pointers - so they're tiny and fit more keys per block</li>
+          <li>Leaves are <b>linked together</b> - perfect for range queries like <code>BETWEEN</code></li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>Structure rules (order m)</h3>
+    <ul style="padding-left:20px;">
+      <li>Every node has up to <b>m children</b> and up to <b>m-1 keys</b></li>
+      <li>Keys inside a node are <b>sorted</b></li>
+      <li>All leaves at the <b>same depth</b> (balanced)</li>
+      <li>m is chosen so one node = exactly one disk block (typically m = 100 to 500)</li>
+    </ul>
+
+    <div class="demo">
+      <div class="demo-title">Interactive B+ Tree: Search for a key</div>
+      <div class="controls">
+        <label>Search key: <input type="number" id="btreeKey" value="23" /></label>
+        <button class="btn" onclick="btreeSearch()">Search</button>
+        <button class="btn gray" onclick="btreeReset()">Reset</button>
+      </div>
+      <div class="btree-wrap">
+        <svg class="btree" id="btreeSvg" width="900" height="380"></svg>
+      </div>
+      <div class="log" id="btreeLog"></div>
+      <div class="stats">
+        <div class="stat"><div class="lbl">Disk Reads</div><div class="val" id="btreeReads">0</div></div>
+        <div class="stat"><div class="lbl">Tree Height</div><div class="val">3</div></div>
+        <div class="stat"><div class="lbl">Result</div><div class="val" id="btreeResult">-</div></div>
+      </div>
+    </div>
+
+    <h3>How data is stored - a concrete example</h3>
+    <p>Say InnoDB has a 16 KB page and rows are ~160 bytes. A leaf page holds ~100 rows. An internal page holds maybe 500 (key + pointer) entries because they're smaller.</p>
+    <pre><code>Internal Node (one disk block, 16 KB):
+[ ptr | 100 | ptr | 250 | ptr | 400 | ptr | 700 | ptr | ... 500 entries ]
+
+Each ptr points to a child node (also one disk block).
+
+Leaf Node (one disk block, 16 KB):
+[ row(id=101, name=..., email=...) | row(id=102, ...) | ... ~100 rows ]
+[ next_leaf_ptr -> ]   <-- linked list for range scans</code></pre>
+  </section>
+
+  <!-- ============ OPTIMIZE ============ -->
+  <section class="section" id="optimize">
+    <h2>Why B-Trees Win on Block-Addressable Disk</h2>
+
+    <h3>1. One node = one block</h3>
+    <p>Reading one B-Tree node = exactly one disk I/O. The tree is designed around the disk's read unit, not against it.</p>
+
+    <h3>2. High fanout = shallow tree = few disk reads</h3>
+    <p>If each node has 500 children, then in just 4 levels you can index 500&#8308; = <b>62.5 billion</b> rows.</p>
+    <pre><code>Height 1: up to 500 rows
+Height 2: up to 250,000 rows
+Height 3: up to 125,000,000 rows
+Height 4: up to 62,500,000,000 rows  &lt;-- typical max for huge tables</code></pre>
+    <p>So searching a billion-row table needs only ~<b>4 disk reads</b>. At 10 ms each, that's 40 ms total. Compare to 6 days for linear scan.</p>
+
+    <div class="demo">
+      <div class="demo-title">Disk reads vs table size</div>
+      <div class="controls">
+        <label>Rows (millions): <input type="number" id="rowsM" value="1000" min="1" max="100000" /></label>
+        <label>Fanout: <input type="number" id="fanout" value="500" min="2" max="1000" /></label>
+        <button class="btn" onclick="calcHeight()">Compute</button>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="lbl">Tree Height</div><div class="val" id="calcH">-</div></div>
+        <div class="stat"><div class="lbl">Disk Reads / Query</div><div class="val" id="calcR">-</div></div>
+        <div class="stat"><div class="lbl">Latency (HDD, 10ms)</div><div class="val" id="calcL">-</div></div>
+      </div>
+    </div>
+
+    <h3>3. Sequential leaf links = cheap range queries</h3>
+    <p>In a B+ Tree, leaves form a linked list. So <code>WHERE id BETWEEN 100 AND 1000</code> finds the start leaf in 4 reads, then walks the linked list - each step is one block read covering ~100 rows.</p>
+
+    <h3>4. Top of tree stays in RAM (buffer pool)</h3>
+    <p>The root and the next 1-2 levels are tiny (a few MB total) and get cached in RAM by the DBMS's buffer pool. So in practice the root and second-level reads cost <b>0 disk I/O</b>. Only the leaf read actually hits disk.</p>
+    <p>Effective disk reads per lookup: often just <b>1</b>.</p>
+
+    <h3>5. Inserts stay balanced</h3>
+    <p>When a node overflows, it splits and pushes a key up. This keeps the tree balanced without expensive global reorganization - very different from a sorted array on disk.</p>
+
+    <div class="note">
+      <b>Summary of why B-Trees fit block-addressable storage so well:</b>
+      <ul style="margin-top:6px; padding-left:20px;">
+        <li>Each node is sized to exactly one block - no wasted I/O</li>
+        <li>Fanout is huge, so trees stay shallow - O(log<sub>500</sub> n) instead of O(log<sub>2</sub> n)</li>
+        <li>Internal nodes are cached aggressively in RAM</li>
+        <li>Leaf links enable efficient range scans (B+ Tree)</li>
+        <li>Self-balancing keeps performance predictable as data grows</li>
+      </ul>
+    </div>
+
+    <h3>So when your faculty said...</h3>
+    <p>...<i>"databases use special data structures because disk is block addressable"</i> - they meant: the algorithm and the storage hardware are <b>co-designed</b>. B-Trees aren't faster because they're a clever idea in isolation. They're faster because they take the disk's worst limitation (must read whole blocks) and turn it into a strength (each block read tells you about ~500 keys at once).</p>
+  </section>
+
+  <!-- ============ ARCHITECTURE ============ -->
+  <section class="section" id="architecture">
+    <span data-cf-change="ch-dbms-architecture">
+    <h2>High-Level Design of a Relational DBMS</h2>
+    
+
+    <div class="note">
+       High level architecture of relational DBMS in three points like Postgres or MySQL.:
+      <ol style="margin-top:6px; padding-left:24px;">
+        <li>&#9989; "Main file where data is stored in optimised form" - correct. This is the <b>data file</b> (heap files + B-Tree index files on disk).</li>
+        <li>&#9989; "Buffer pool in RAM holds latest reads/writes" - correct. Writes don't go straight to disk because one logical change touches many physical structures (data page, multiple indexes, metadata) and a crash mid-way would corrupt the database.</li>
+        <li>&#9989; "WAL exists on disk, sequential writes = fast" - correct. <span style="color:#ffaa00;">Small correction:</span> the data isn't pushed from the WAL to the main file. The buffer pool holds the modified pages; <b>the WAL just records the intent</b>. Dirty pages from the buffer pool are written to the main file at <b>checkpoints</b>, and only then can the corresponding WAL records be discarded.</li>
+      </ol>
+    </div>
+
+    <h3 style="color:#ffd86b;">&#127959;&#65039; The component diagram</h3>
+    <div class="demo">
+      <div class="demo-title">Inside a Relational DBMS</div>
+      <svg width="100%" viewBox="0 0 800 460" style="max-width:800px; display:block; margin:0 auto;">
+        <!-- Client -->
+        <rect x="320" y="10" width="160" height="40" fill="rgba(0,212,255,0.2)" stroke="#00d4ff" stroke-width="2" rx="6"/>
+        <text x="400" y="35" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Client / Application</text>
+
+        <!-- Query Layer -->
+        <rect x="180" y="80" width="440" height="80" fill="rgba(255,110,196,0.15)" stroke="#ff6ec4" stroke-width="2" rx="6"/>
+        <text x="400" y="100" text-anchor="middle" fill="#ff6ec4" font-size="12" font-weight="bold">Query Engine</text>
+        <rect x="195" y="115" width="120" height="32" fill="rgba(255,255,255,0.05)" stroke="#ff6ec4" stroke-width="1" rx="4"/>
+        <text x="255" y="135" text-anchor="middle" fill="#fff" font-size="11">Parser</text>
+        <rect x="335" y="115" width="120" height="32" fill="rgba(255,255,255,0.05)" stroke="#ff6ec4" stroke-width="1" rx="4"/>
+        <text x="395" y="135" text-anchor="middle" fill="#fff" font-size="11">Planner / Optimizer</text>
+        <rect x="475" y="115" width="120" height="32" fill="rgba(255,255,255,0.05)" stroke="#ff6ec4" stroke-width="1" rx="4"/>
+        <text x="535" y="135" text-anchor="middle" fill="#fff" font-size="11">Executor</text>
+
+        <!-- Transaction + Lock -->
+        <rect x="40" y="190" width="160" height="50" fill="rgba(255,216,107,0.15)" stroke="#ffd86b" stroke-width="2" rx="6"/>
+        <text x="120" y="212" text-anchor="middle" fill="#ffd86b" font-size="12" font-weight="bold">Transaction Manager</text>
+        <text x="120" y="230" text-anchor="middle" fill="#fff" font-size="10">(BEGIN/COMMIT/ROLLBACK)</text>
+
+        <rect x="600" y="190" width="160" height="50" fill="rgba(255,216,107,0.15)" stroke="#ffd86b" stroke-width="2" rx="6"/>
+        <text x="680" y="212" text-anchor="middle" fill="#ffd86b" font-size="12" font-weight="bold">Lock Mgr / MVCC</text>
+        <text x="680" y="230" text-anchor="middle" fill="#fff" font-size="10">(concurrency control)</text>
+
+        <!-- RAM section -->
+        <rect x="40" y="260" width="720" height="90" fill="rgba(0,212,255,0.06)" stroke="rgba(0,212,255,0.3)" stroke-width="1.5" stroke-dasharray="4,4" rx="6"/>
+        <text x="60" y="280" fill="#00d4ff" font-size="11" font-style="italic">RAM (volatile)</text>
+
+        <rect x="100" y="290" width="280" height="50" fill="rgba(0,212,255,0.2)" stroke="#00d4ff" stroke-width="2" rx="6"/>
+        <text x="240" y="310" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Buffer Pool</text>
+        <text x="240" y="328" text-anchor="middle" fill="#b9b9c9" font-size="10">cached pages (clean + dirty)</text>
+
+        <rect x="420" y="290" width="280" height="50" fill="rgba(0,212,255,0.2)" stroke="#00d4ff" stroke-width="2" rx="6"/>
+        <text x="560" y="310" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">WAL Buffer</text>
+        <text x="560" y="328" text-anchor="middle" fill="#b9b9c9" font-size="10">pending log records</text>
+
+        <!-- Disk section -->
+        <rect x="40" y="370" width="720" height="80" fill="rgba(255,170,0,0.06)" stroke="rgba(255,170,0,0.3)" stroke-width="1.5" stroke-dasharray="4,4" rx="6"/>
+        <text x="60" y="390" fill="#ffaa00" font-size="11" font-style="italic">Disk (durable)</text>
+
+        <rect x="100" y="400" width="200" height="40" fill="rgba(255,170,0,0.2)" stroke="#ffaa00" stroke-width="2" rx="6"/>
+        <text x="200" y="424" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">Data Files (heap + B-Trees)</text>
+
+        <rect x="320" y="400" width="160" height="40" fill="rgba(255,170,0,0.2)" stroke="#ffaa00" stroke-width="2" rx="6"/>
+        <text x="400" y="424" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">WAL (log file)</text>
+
+        <rect x="500" y="400" width="200" height="40" fill="rgba(255,170,0,0.2)" stroke="#ffaa00" stroke-width="2" rx="6"/>
+        <text x="600" y="424" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">System Catalog / Metadata</text>
+
+        <!-- Arrows -->
+        <line x1="400" y1="50" x2="400" y2="80" stroke="#fff" stroke-width="1.5" marker-end="url(#arrA)"/>
+        <line x1="400" y1="160" x2="400" y2="260" stroke="#fff" stroke-width="1.5" marker-end="url(#arrA)"/>
+        <line x1="240" y1="340" x2="200" y2="400" stroke="#00ff88" stroke-width="2" marker-end="url(#arrB)" stroke-dasharray="5,3"/>
+        <text x="135" y="378" fill="#00ff88" font-size="10">flush dirty pages</text>
+        <line x1="560" y1="340" x2="400" y2="400" stroke="#ff6ec4" stroke-width="2" marker-end="url(#arrC)"/>
+        <text x="470" y="378" fill="#ff6ec4" font-size="10">fsync log records</text>
+        <defs>
+          <marker id="arrA" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#fff"/></marker>
+          <marker id="arrB" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#00ff88"/></marker>
+          <marker id="arrC" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#ff6ec4"/></marker>
+        </defs>
+      </svg>
+    </div>
+
+    <span data-cf-change="ch-write-path">
+    <h3 style="color:#ffd86b;">&#9999;&#65039; The write path - what happens on <code>UPDATE users SET name='X' WHERE id=42</code></h3>
+    <ol style="padding-left:24px;">
+      <li>User issues <code>UPDATE</code>.</li>
+      <li>Database locates the target row (often via an index).</li>
+      <li>Required locks / MVCC metadata are acquired.</li>
+      <li>Relevant page(s) are loaded into the buffer pool if not already cached.</li>
+      <li>Constraints are validated.</li>
+      <li>Table and possibly index pages are modified in memory (buffer pool).</li>
+      <li>Dirty pages are created.</li>
+      <li>WAL records describing the changes are generated and appended to the WAL buffer.</li>
+      <li>Commit record is written to the WAL.</li>
+      <li>WAL is flushed to durable storage (<code>fsync</code>).</li>
+      <li>Transaction is acknowledged as committed to the client.</li>
+      <li>Dirty table/index pages are flushed to disk later by checkpoints / background writers.</li>
+    </ol>
+    </span>
+
+    
+
+    <h3 style="color:#ffd86b;">&#128214; The read path - what happens on <code>SELECT * FROM users WHERE id=42</code></h3>
+    <ol style="padding-left:24px;">
+      <li>Parse + plan + execute, same first 3 steps as above.</li>
+      <li>Executor needs the leaf page that contains id=42. It asks the <b>buffer pool</b> first.</li>
+      <li><b>Cache hit:</b> page is already in RAM &rarr; return in microseconds. (For the root and upper levels of the B-Tree, this is almost always the case.)</li>
+      <li><b>Cache miss:</b> buffer pool issues a block read from the data file. If the buffer pool is full, it <b>evicts</b> some other page (LRU-ish policy). If the evicted page was dirty, it must be written back to disk first - but only after its WAL records are flushed.</li>
+      <li>Return row to client.</li>
+    </ol>
+
+    <h3 style="color:#ffd86b;">&#128193; Checkpoints - when does WAL actually get freed?</h3>
+    <p>WAL files grow forever otherwise. A <b>checkpoint</b> is a periodic event (every few seconds to minutes) where:</p>
+    <ol style="padding-left:24px;">
+      <li>All currently-dirty pages in the buffer pool are flushed to the main data file.</li>
+      <li>Once flushed, a "checkpoint marker" is written to the WAL.</li>
+      <li>WAL records older than the most recent checkpoint can now be discarded (truncated).</li>
+    </ol>
+    <p>So the WAL doesn't fill up because "buffer pool is full" - rather, the checkpoint process keeps both in balance. Your "WAL is full &rarr; push to main file" mental model is in the right direction but the trigger is checkpoints (time/log-size based), not the buffer being full.</p>
+
+    <h3 style="color:#ffd86b;">&#128296; Crash recovery - the WAL's whole reason to exist</h3>
+    <p>Suppose the server crashes. RAM is gone, so the buffer pool's dirty pages vanish. On restart:</p>
+    <ol style="padding-left:24px;">
+      <li><b>Analysis phase:</b> read the WAL to figure out which transactions were committed at the time of crash.</li>
+      <li><b>Redo phase:</b> walk through the WAL from the last checkpoint forward. For every committed change whose effect might not have made it to the data file (because the dirty page hadn't been flushed yet), <b>re-apply</b> the change to the data file.</li>
+      <li><b>Undo phase:</b> for transactions that started but never committed, <b>roll back</b> their effects using the WAL's "before image" records.</li>
+    </ol>
+    <p>End result: the database is restored to a consistent state matching exactly what was committed before the crash. This is the <b>D in ACID</b> (Durability).</p>
+
+    <h3 style="color:#ffd86b;">&#127939; Why sequential WAL writes are so much faster than random data-file writes</h3>
+    <p>Recall everything we learned:</p>
+    <ul style="padding-left:20px;">
+      <li>A single user transaction may touch many pages (data + multiple indexes), scattered across the data file.</li>
+      <li>If we wrote every change directly to the data file, we'd do many <b>random</b> block writes - ~10 ms each on HDD.</li>
+      <li>Instead, we write all the change records <b>in order, append-only</b> to the WAL. That's one continuous stream &rarr; the disk head doesn't move (or for SSD, no random-write amplification).</li>
+      <li>The slow "scatter the dirty pages to their proper homes" work is <b>batched</b> at checkpoint time and done in the background.</li>
+    </ul>
+    <p>So WAL is the trick that lets transactions <b>commit fast</b> while still being durable. The slow disk work happens later, asynchronously, without making the client wait.</p>
+
+    <h3 style="color:#ffd86b;">&#129518; Putting it all together: ACID via these components</h3>
+    <div class="compare">
+      <div class="card">
+        <h4>&#9410; Atomicity</h4>
+        <p>All-or-nothing. Guaranteed by WAL's undo records + transaction IDs. If a transaction never commits, recovery rolls back any partial changes.</p>
+      </div>
+      <div class="card">
+        <h4>&#9426; Consistency</h4>
+        <p>Constraints, foreign keys, triggers - enforced by the executor before WAL records are written.</p>
+      </div>
+      <div class="card">
+        <h4>&#9410; Isolation</h4>
+        <p>Concurrent transactions don't see each other's half-done work. Lock manager (2-Phase Locking) or MVCC (versioned rows) achieves this.</p>
+      </div>
+      <div class="card">
+        <h4>&#9420; Durability</h4>
+        <p>Once COMMIT returns, the change survives crashes. WAL fsync before COMMIT + recovery on restart give this guarantee.</p>
+      </div>
+    </div>
+
+    <h3 style="color:#ffd86b;">&#128221; Cleaned-up version of your mental model</h3>
+    <div class="note">
+      <ol style="padding-left:20px; margin-top:6px;">
+        <li><b>Data files</b> on disk hold the actual rows in B-Tree organized form (one heap file per table, one B-Tree file per index).</li>
+        <li><b>Buffer pool</b> in RAM caches pages. Both reads and writes go through it. Modified pages stay "dirty" in RAM and are written back to disk lazily.</li>
+        <li><b>Write-Ahead Log (WAL)</b> on disk is a sequential, append-only file. Every change is logged here <i>before</i> it's allowed to be flushed to data files. WAL writes are cheap because they're sequential.</li>
+        <li><b>Checkpoints</b> periodically flush all dirty pages to the data files and then truncate the WAL. This is when the "expensive random write" work gets batched.</li>
+        <li><b>On crash</b>: replay the WAL from the last checkpoint to redo committed work and undo uncommitted work. The database comes back consistent.</li>
+      </ol>
+    </div>
+
+    <span data-cf-change="ch-why-buffer-pool">
+    <h3 style="color:#ffd86b; margin-top:28px;">&#128161; Why Updating a Page in RAM is Faster Than Updating it on Disk</h3>
+
+    <p>Take the same 8 KB B+ tree page. It exists on disk. It's also loaded into the buffer pool in RAM. You want to change one value in it. Here's what each path costs:</p>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:14px;">
+      <div style="background:rgba(0,212,255,0.08); border:1px solid rgba(0,212,255,0.3); border-radius:8px; padding:14px;">
+        <b style="color:#00d4ff;">Updating the page in RAM</b>
+        <ol style="margin-top:8px; padding-left:18px; line-height:1.9; font-size:0.95em;">
+          <li>CPU sends a write instruction to the memory address.</li>
+          <li>Electrical signal activates the row + column decoder inside the RAM chip.</li>
+          <li>The target cell is overwritten.</li>
+        </ol>
+        <p style="margin-top:8px; color:#7fff7f; font-size:0.93em;"><b>Total time: ~100 nanoseconds.</b> Fully electrical, no physical movement.</p>
+      </div>
+      <div style="background:rgba(255,110,196,0.08); border:1px solid rgba(255,110,196,0.3); border-radius:8px; padding:14px;">
+        <b style="color:#ff6ec4;">Updating the page on disk (HDD)</b>
+        <ol style="margin-top:8px; padding-left:18px; line-height:1.9; font-size:0.95em;">
+          <li>OS issues a seek: the arm physically swings to the right track (~4&ndash;8 ms).</li>
+          <li>Wait for the platter to rotate the right sector under the head (~4 ms at 7200 RPM).</li>
+          <li>Read the old block into RAM (disk can only write whole blocks).</li>
+          <li>Modify the bytes in RAM.</li>
+          <li>Write the full block back to disk (~1 ms sequential write).</li>
+        </ol>
+        <p style="margin-top:8px; color:#ff6ec4; font-size:0.93em;"><b>Total time: ~10 milliseconds.</b> Dominated by mechanical movement.</p>
+      </div>
+    </div>
+
+    <p style="margin-top:16px;"><b>That's a 100,000&times; difference</b> &mdash; not because the CPU is doing different work, but because <em>the medium forces different physical constraints</em>:</p>
+    <ul style="margin-top:8px; padding-left:22px; line-height:1.9;">
+      <li><b>RAM is electrical.</b> Any address is reached by flipping transistors. There is no "distance" between addresses &mdash; everything takes the same ~100 ns.</li>
+      <li><b>Disk is mechanical (HDD) or has erase constraints (SSD).</b> An HDD must physically move metal to the right spot. An SSD can't overwrite in-place &mdash; it must erase a whole flash block (~512 KB) before writing, even if you changed 8 KB. Both are orders of magnitude slower than RAM.</li>
+      <li><b>Disk is block-addressable.</b> Even if the mechanical problem didn't exist, disk hardware can only read/write in fixed block sizes. Changing one byte still requires reading the whole block, changing it in RAM, and writing the whole block back. RAM lets you write exactly the bytes you want.</li>
+    </ul>
+
+    <div style="margin-top:18px; padding:12px 16px; background:rgba(255,216,107,0.07); border-left:4px solid #ffd86b; border-radius:4px;">
+      <b style="color:#ffd86b;">The one-sentence answer:</b>
+      <p style="margin-top:6px;">Updating a page in RAM is faster because RAM is a pure electrical circuit &mdash; any write lands in ~100 ns with no physical movement and no block-size constraints &mdash; while a disk write triggers a mechanical seek (HDD) or an erase-before-write cycle (SSD) that takes ~1,000&ndash;100,000&times; longer.</p>
+    </div>
+
+    <p style="margin-top:16px; color:#b9b9c9;">The buffer pool exists precisely to exploit this gap: keep the page in RAM, do all your modifications there at electrical speed, and only pay the disk cost once &mdash; in bulk, at a checkpoint, when thousands of changes can be written in a single sorted pass.</p>
+    </span>
+
+    
+  </section>
+
+</div>
+
+<script>
+/* ===== Tabs ===== */
+document.querySelectorAll('.tab-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById(b.dataset.tab).classList.add('active');
+  });
+});
+
+/* ===== RAM demo ===== */
+const ramData = ['72','15','89','41','06','23','58','94','37','12','65','80','19','46','71','03'];
+function ramRender(activeIdx = -1) {
+  const row = document.getElementById('ramRow');
+  row.innerHTML = '';
+  ramData.forEach((v, i) => {
+    const c = document.createElement('div');
+    c.className = 'cell' + (i === activeIdx ? ' active' : '');
+    c.innerHTML = `<div class="idx">i=${i}</div><div>${v}</div>`;
+    c.onclick = () => { document.getElementById('ramIndex').value = i; ramFetch(); };
+    row.appendChild(c);
+  });
+}
+function ramFetch() {
+  const i = parseInt(document.getElementById('ramIndex').value);
+  if (isNaN(i) || i < 0 || i >= ramData.length) return;
+  ramRender(i);
+  const addr = 1000 + i * 4;
+  document.getElementById('ramAddr').textContent = '0x' + addr.toString(16).toUpperCase();
+  document.getElementById('ramTime').textContent = '~100 ns';
+  document.getElementById('ramBytes').textContent = '4 bytes';
+}
+function ramReset() {
+  ramRender();
+  document.getElementById('ramAddr').textContent = '-';
+  document.getElementById('ramTime').textContent = '-';
+  document.getElementById('ramBytes').textContent = '-';
+}
+ramRender();
+
+/* ===== Disk demo ===== */
+const BLOCK_SIZE = 8;
+const TOTAL_BYTES = 32;
+function diskRender(activeBlock = -1, targetOffset = -1) {
+  const cont = document.getElementById('diskContainer');
+  cont.innerHTML = '';
+  const numBlocks = TOTAL_BYTES / BLOCK_SIZE;
+  for (let b = 0; b < numBlocks; b++) {
+    const blockDiv = document.createElement('div');
+    blockDiv.className = 'block' + (b === activeBlock ? ' active' : '');
+    blockDiv.innerHTML = `<div class="block-label">Block #${b} (bytes ${b*BLOCK_SIZE}..${b*BLOCK_SIZE+BLOCK_SIZE-1})</div>`;
+    const cells = document.createElement('div');
+    cells.className = 'block-cells';
+    for (let i = 0; i < BLOCK_SIZE; i++) {
+      const off = b * BLOCK_SIZE + i;
+      const c = document.createElement('div');
+      c.className = 'cell' + (off === targetOffset && b === activeBlock ? ' target' : '');
+      c.innerHTML = `<div class="idx">${off}</div><div>${(Math.random()*99|0).toString().padStart(2,'0')}</div>`;
+      cells.appendChild(c);
+    }
+    blockDiv.appendChild(cells);
+    cont.appendChild(blockDiv);
+  }
+}
+function diskFetch() {
+  const off = parseInt(document.getElementById('diskOffset').value);
+  if (isNaN(off) || off < 0 || off >= TOTAL_BYTES) return;
+  const blk = Math.floor(off / BLOCK_SIZE);
+  diskRender(blk, off);
+  document.getElementById('diskBlock').textContent = '#' + blk;
+  document.getElementById('diskBytes').textContent = BLOCK_SIZE + ' bytes';
+  document.getElementById('diskWanted').textContent = '1 byte';
+  document.getElementById('diskTime').textContent = '~10 ms';
+}
+function diskReset() {
+  diskRender();
+  document.getElementById('diskBlock').textContent = '-';
+  document.getElementById('diskBytes').textContent = '-';
+  document.getElementById('diskWanted').textContent = '-';
+  document.getElementById('diskTime').textContent = '-';
+}
+diskRender();
+
+/* ===== B+ Tree demo =====
+   Tree layout:
+   Root (internal): [25, 50]
+     Child 0 (internal): [10, 18]
+        Leaf [3, 7, 9]
+        Leaf [12, 15]
+        Leaf [20, 23]
+     Child 1 (internal): [33, 42]
+        Leaf [27, 30]
+        Leaf [36, 40]
+        Leaf [45, 48]
+     Child 2 (internal): [60, 75]
+        Leaf [52, 55, 58]
+        Leaf [63, 70]
+        Leaf [77, 82, 90]
+*/
+const tree = {
+  type: 'internal', keys: [25, 50], id: 'root',
+  x: 450, y: 30,
+  children: [
+    {
+      type: 'internal', keys: [10, 18], id: 'i0',
+      x: 150, y: 130,
+      children: [
+        { type: 'leaf', keys: [3, 7, 9], id: 'l0', x: 60, y: 240 },
+        { type: 'leaf', keys: [12, 15], id: 'l1', x: 160, y: 240 },
+        { type: 'leaf', keys: [20, 23], id: 'l2', x: 260, y: 240 }
+      ]
+    },
+    {
+      type: 'internal', keys: [33, 42], id: 'i1',
+      x: 450, y: 130,
+      children: [
+        { type: 'leaf', keys: [27, 30], id: 'l3', x: 360, y: 240 },
+        { type: 'leaf', keys: [36, 40], id: 'l4', x: 460, y: 240 },
+        { type: 'leaf', keys: [45, 48], id: 'l5', x: 560, y: 240 }
+      ]
+    },
+    {
+      type: 'internal', keys: [60, 75], id: 'i2',
+      x: 750, y: 130,
+      children: [
+        { type: 'leaf', keys: [52, 55, 58], id: 'l6', x: 660, y: 240 },
+        { type: 'leaf', keys: [63, 70], id: 'l7', x: 760, y: 240 },
+        { type: 'leaf', keys: [77, 82, 90], id: 'l8', x: 860, y: 240 }
+      ]
+    }
+  ]
+};
+
+function btreeRender(active = null, visited = [], matchKey = null) {
+  const svg = document.getElementById('btreeSvg');
+  svg.innerHTML = '';
+  const NS = 'http://www.w3.org/2000/svg';
+
+  // edges first
+  function drawEdges(node) {
+    if (!node.children) return;
+    node.children.forEach(c => {
+      const line = document.createElementNS(NS, 'line');
+      line.setAttribute('x1', node.x);
+      line.setAttribute('y1', node.y + 30);
+      line.setAttribute('x2', c.x);
+      line.setAttribute('y2', c.y);
+      line.setAttribute('class', 'edge');
+      svg.appendChild(line);
+      drawEdges(c);
+    });
+  }
+  drawEdges(tree);
+
+  // linked list arrows between leaves
+  function gatherLeaves(node, out) {
+    if (node.type === 'leaf') out.push(node);
+    else node.children.forEach(c => gatherLeaves(c, out));
+  }
+  const leaves = [];
+  gatherLeaves(tree, leaves);
+  for (let i = 0; i < leaves.length - 1; i++) {
+    const a = leaves[i], b = leaves[i+1];
+    const line = document.createElementNS(NS, 'line');
+    line.setAttribute('x1', a.x + 35);
+    line.setAttribute('y1', a.y + 20);
+    line.setAttribute('x2', b.x - 35);
+    line.setAttribute('y2', b.y + 20);
+    line.setAttribute('stroke', 'rgba(255,216,107,0.4)');
+    line.setAttribute('stroke-dasharray', '3,3');
+    line.setAttribute('stroke-width', '1');
+    svg.appendChild(line);
+  }
+
+  // draw nodes
+  function drawNode(node) {
+    const keyW = 36;
+    const totalW = Math.max(keyW * node.keys.length + 10, 70);
+    const x0 = node.x - totalW / 2;
+    const rect = document.createElementNS(NS, 'rect');
+    rect.setAttribute('x', x0);
+    rect.setAttribute('y', node.y);
+    rect.setAttribute('width', totalW);
+    rect.setAttribute('height', 38);
+    rect.setAttribute('rx', 6);
+    let cls = 'node-rect';
+    if (active === node.id) cls += ' active';
+    else if (visited.includes(node.id)) cls += ' visited';
+    rect.setAttribute('class', cls);
+    svg.appendChild(rect);
+
+    node.keys.forEach((k, i) => {
+      const kx = x0 + 5 + i * keyW;
+      const kRect = document.createElementNS(NS, 'rect');
+      kRect.setAttribute('x', kx);
+      kRect.setAttribute('y', node.y + 6);
+      kRect.setAttribute('width', keyW - 4);
+      kRect.setAttribute('height', 26);
+      kRect.setAttribute('rx', 3);
+      kRect.setAttribute('class', 'key-rect' + (matchKey === k && node.type === 'leaf' ? ' match' : ''));
+      svg.appendChild(kRect);
+
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', kx + (keyW - 4) / 2);
+      t.setAttribute('y', node.y + 24);
+      t.setAttribute('text-anchor', 'middle');
+      t.setAttribute('class', 'key-text' + (matchKey === k && node.type === 'leaf' ? ' match' : ''));
+      t.textContent = k;
+      svg.appendChild(t);
+    });
+
+    if (node.children) node.children.forEach(drawNode);
+  }
+  drawNode(tree);
+}
+btreeRender();
+
+function btreeLog(msg, cls = '') {
+  const log = document.getElementById('btreeLog');
+  const d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.textContent = msg;
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function btreeSearch() {
+  const key = parseInt(document.getElementById('btreeKey').value);
+  if (isNaN(key)) return;
+  document.getElementById('btreeLog').innerHTML = '';
+  document.getElementById('btreeResult').textContent = '-';
+  let reads = 0;
+  document.getElementById('btreeReads').textContent = '0';
+
+  let node = tree;
+  const visited = [];
+  while (true) {
+    reads++;
+    document.getElementById('btreeReads').textContent = reads;
+    btreeLog(`Read disk block: ${node.id} - keys [${node.keys.join(', ')}]`, 'info');
+    btreeRender(node.id, visited);
+    await sleep(900);
+
+    if (node.type === 'leaf') {
+      if (node.keys.includes(key)) {
+        btreeLog(`Found key ${key} in leaf ${node.id}!`, 'hit');
+        document.getElementById('btreeResult').textContent = 'Found';
+        btreeRender(null, [...visited, node.id], key);
+      } else {
+        btreeLog(`Key ${key} NOT in leaf ${node.id}. Not in tree.`, 'err');
+        document.getElementById('btreeResult').textContent = 'Not Found';
+        btreeRender(null, [...visited, node.id]);
+      }
+      return;
+    }
+
+    visited.push(node.id);
+    let childIdx = node.keys.length;
+    for (let i = 0; i < node.keys.length; i++) {
+      if (key < node.keys[i]) { childIdx = i; break; }
+    }
+    btreeLog(`Key ${key} - choosing child #${childIdx} (compared against ${node.keys.join(', ')})`);
+    node = node.children[childIdx];
+  }
+}
+function btreeReset() {
+  document.getElementById('btreeLog').innerHTML = '';
+  document.getElementById('btreeReads').textContent = '0';
+  document.getElementById('btreeResult').textContent = '-';
+  btreeRender();
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/* ===== Height calculator ===== */
+function calcHeight() {
+  const rows = parseInt(document.getElementById('rowsM').value) * 1_000_000;
+  const m = parseInt(document.getElementById('fanout').value);
+  if (!rows || m < 2) return;
+  const h = Math.ceil(Math.log(rows) / Math.log(m));
+  document.getElementById('calcH').textContent = h;
+  document.getElementById('calcR').textContent = h;
+  document.getElementById('calcL').textContent = (h * 10) + ' ms';
+}
+calcHeight();
+</script>
+</body>
+</html>
