@@ -149,12 +149,14 @@ Now update `"VBS"` to `"Abdul Rehman Bin Aziz"`. With `varchar`, there's no room
 ```mermaid
 flowchart LR
     subgraph Before
-    A["name=VBS | age=20 | email=..."]
+        A["name=VBS | age=20 | email=..."]
     end
-    subgraph After update name=Abdul Rehman...
-    B["name=Abdul Rehman Bin Aziz | ???"]
-    B --> C[Must shift / fragment / migrate the row<br/>= expensive disk reorganization]
+
+    subgraph after["After update name = Abdul Rehman..."]
+        B["name=Abdul Rehman Bin Aziz | ???"]
+        B --> C["Must shift / fragment / migrate the row<br/>= expensive disk reorganization"]
     end
+
     A -->|update| B
 ```
 
