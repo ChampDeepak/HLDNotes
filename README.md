@@ -1,5 +1,9 @@
 # High-Level System Design — Unified Lecture Notes (Lec09–Lec16)
 
+#### Before reading notes lets take a small reminder from Paras Chopra:
+> You need to be highly vigilant whenever you’re using AI to master something. With AI, the more likely outcome is having an illusion of mastery instead of the real thing. AI plays well into our tendency to save cognitive effort precisely when the point is to spend it.
+
+#### Back to Notes
 These notes synthesize the **lecture transcripts** with the matching **written notes** (local PDFs and web pages) into one explanation per lecture — built for *applying* the concepts to real system-design problems, not just reviewing terminology. Each file is self-contained but cross-links to the others where a topic spans lectures.
 
 ## The Arc
