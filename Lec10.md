@@ -188,19 +188,21 @@ Putting it all together:
 
 ```mermaid
 flowchart TB
-    G["get(key)"] --> M{In MemTable?}
-    M -->|yes| R1[Return value O(1)<br/>update LRU]
-    M -->|no| LOOP[For each SSTable, newest→oldest]
-    LOOP --> BF{Bloom filter says present?}
-    BF -->|no| NEXT[Skip - no disk read]
-    BF -->|yes| SI[Binary search sparse index in RAM]
-    SI --> BLK[Read 1 block from disk]
-    BLK --> FOUND{Found?}
-    FOUND -->|value| R2[Return latest value]
-    FOUND -->|tombstone| KNF[KeyNotFoundError]
-    FOUND -->|no| NEXT
-    NEXT --> LOOP
-    LOOP -->|exhausted| KNF
+    G["get(key)"] --> M{"In MemTable?"}
+    M -->|yes| R1["Return value O(1)"]
+    M -->|no| L["Check SSTables newest→oldest"]
+
+    L --> BF{"Bloom filter?"}
+    BF -->|no| L
+    BF -->|yes| SI["Search sparse index"]
+    SI --> BLK["Read disk block"]
+    BLK --> F{"Found?"}
+
+    F -->|value| R2["Return latest value"]
+    F -->|tombstone| KNF["KeyNotFoundError"]
+    F -->|no| L
+
+    L -->|all checked| KNF
 ```
 
 > 🔑 **Key Point:** Every component pulls its weight — **WAL** = durability, **MemTable** = fast reads + write-through (so it's never stale, never needs separate cache invalidation), **SSTables** = sorted long-term storage, **compaction** = reclaim space, **sparse index** = 1 seek/file, **Bloom filter** = skip absent files. Real Cassandra/ScyllaDB add many more OS- and hardware-level optimizations; this is the faithful high-level model.
