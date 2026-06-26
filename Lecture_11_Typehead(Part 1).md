@@ -1,7 +1,6 @@
 # Lecture 11: How to Attack a System‑Design Problem — Typeahead, Scale Estimation, and Async Communication
 
 ## Table of Contents
-- [Note](note)
 - [Overview](#overview)
 - [The Interview Mindset: Clarify Before You Solve](#the-interview-mindset-clarify-before-you-solve)
 - [What Exactly Is a Typeahead?](#what-exactly-is-a-typeahead)
@@ -13,8 +12,6 @@
 - [Try It Yourself](#try-it-yourself)
 - [Homework / Next Lecture Preview](#homework--next-lecture-preview)
 
-## Note
-> This is condensed version of notes good for quick revision. For better understanding [Pragy Agarwal's notes on Typehead](https://docs.google.com/document/d/11YhxJwEiwWLVUoSAfFEacY0e49hb7zg_enOLpsIvNIc/edit?tab=t.0#heading=h.phf18zpz4htl) are highly recommended. 
 ## Overview
 The databases arc is done; now we start **case studies**, and the first — designing a search **typeahead** (Google's autocomplete) — is really a vehicle for learning the *method* of high-level design. Unlike a DSA problem, an HLD problem has no fixed statement, no sample input/output, and often a feature you've never built. This lecture teaches the disciplined sequence — **clarify → functional requirements → non-functional requirements → scale estimation → (only then) design** — and along the way introduces **back-of-the-envelope estimation**, **microservices**, and the **synchronous vs asynchronous** distinction that motivates **messaging queues**. We deliberately stop *before* the solution: the trie/ranking design is [Lecture 12](./Lec12.md).
 
