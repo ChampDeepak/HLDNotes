@@ -56,16 +56,18 @@ Express each feature as an **API**, because the API's parameters reveal the shar
 
 ```mermaid
 flowchart LR
-    subgraph Conversation List - getConversations
-    C1[Aakash · ...]
-    C2[Tarun · hi]
-    C3[Eshant · ...]
+    subgraph "Conversation List - getConversations"
+        C1["Aakash · ..."]
+        C2["Tarun · hi"]
+        C3["Eshant · ..."]
     end
+
     C2 -->|tap| CHAT
-    subgraph Chat View - getMessages, paginated
-    M1[Tarun: hi]
-    M2[You: hello]
-    M3[Tarun: ...]
+
+    subgraph "Chat View - getMessages (paginated)"
+        M1["Tarun: hi"]
+        M2["You: hello"]
+        M3["Tarun: ..."]
     end
 ```
 
