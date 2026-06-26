@@ -1,4 +1,5 @@
-# High-Level System Design — Unified Lecture Notes (Lec09–Lec16)
+# High-Level System Design — Notes 
+> This repository is collection of condensed version of notes good for quick revision. For better understanding [Pragy Agarwal's HLD Notes](https://docs.google.com/spreadsheets/d/1ZBRR1epIUoSO2WJ32Fi6qcoWC2cWtmXFVOr80wfE1RE/edit?gid=77917834#gid=77917834) are highly recommended. 
 
 #### Before reading notes lets take a small reminder from Paras Chopra:
 > You need to be highly vigilant whenever you’re using AI to master something. With AI, the more likely outcome is having an illusion of mastery instead of the real thing. AI plays well into our tendency to save cognitive effort precisely when the point is to spend it.
